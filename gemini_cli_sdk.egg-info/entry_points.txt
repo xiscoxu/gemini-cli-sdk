@@ -1,0 +1,2 @@
+[console_scripts]
+gemini-cli-sdk = gemini_cli_sdk.cli:main

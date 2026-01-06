@@ -1,3 +1,61 @@
+Metadata-Version: 2.4
+Name: gemini-cli-sdk
+Version: 1.0.0
+Summary: A Python SDK for interacting with Gemini CLI
+Home-page: https://github.com/xiscoxu/gemini-cli-sdk
+Author: xiscoxu
+Author-email: xuxisco@gmail.com
+Project-URL: Bug Reports, https://github.com/xiscoxu/gemini-cli-sdk/issues
+Project-URL: Source, https://github.com/xiscoxu/gemini-cli-sdk
+Project-URL: Documentation, https://gemini-cli-sdk.readthedocs.io/
+Keywords: gemini,cli,sdk,ai,chatbot,conversation,async,python
+Classifier: Development Status :: 4 - Beta
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Topic :: Software Development :: Libraries :: Python Modules
+Classifier: Topic :: Scientific/Engineering :: Artificial Intelligence
+Classifier: Topic :: Communications :: Chat
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: pydantic>=1.8.0
+Requires-Dist: aioresponses>=0.7.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0.0; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.21.0; extra == "dev"
+Requires-Dist: pytest-cov>=4.0.0; extra == "dev"
+Requires-Dist: black>=22.0.0; extra == "dev"
+Requires-Dist: flake8>=5.0.0; extra == "dev"
+Requires-Dist: mypy>=1.0.0; extra == "dev"
+Provides-Extra: docs
+Requires-Dist: sphinx>=5.0.0; extra == "docs"
+Requires-Dist: sphinx-rtd-theme>=1.0.0; extra == "docs"
+Provides-Extra: test
+Requires-Dist: pytest>=7.0.0; extra == "test"
+Requires-Dist: pytest-asyncio>=0.21.0; extra == "test"
+Requires-Dist: pytest-cov>=4.0.0; extra == "test"
+Requires-Dist: aioresponses>=0.7.0; extra == "test"
+Dynamic: author
+Dynamic: author-email
+Dynamic: classifier
+Dynamic: description
+Dynamic: description-content-type
+Dynamic: home-page
+Dynamic: keywords
+Dynamic: license-file
+Dynamic: project-url
+Dynamic: provides-extra
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary
+
 # Gemini CLI SDK
 
 一个用于与 Gemini CLI 交互的 Python SDK，提供高级接口来管理 Gemini CLI 进程、维护对话会话和处理并发交互。
