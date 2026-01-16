@@ -54,15 +54,15 @@ class SessionInfo:
 @dataclass
 class GeminiConfig:
     """Configuration for Gemini CLI SDK."""
-    max_processes: int = 5
-    idle_timeout: int = 300
-    max_context_length: int = 50
+    max_processes: int = 8
+    idle_timeout: int = 3600
+    max_context_length: int = 1000000
     gemini_command: str = "gemini"
-    gemini_args: List[str] = field(default_factory=lambda: ["--interactive", "--json-output"])
+    gemini_args: List[str] = field(default_factory=list) # Modified here
     enable_logging: bool = True
     log_level: str = "INFO"
-    response_timeout: float = 30.0
-    cleanup_interval: int = 60
+    response_timeout: float = 300
+    cleanup_interval: int = 3600
 
 
 @dataclass

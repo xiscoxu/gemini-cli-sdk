@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union, AsyncGenerator
 from .models import GeminiResponse, GeminiConfig, SessionInfo, MessageRole
 from .session import SessionManager
 from .process_manager import ProcessManager
@@ -124,7 +124,8 @@ class GeminiClient:
     
     async def send_message(self, message: str, session_id: Optional[str] = None,
                           system_instruction: Optional[str] = None,
-                          maintain_context: bool = True) -> GeminiResponse:
+                          maintain_context: bool = True,
+                          stream: bool = False) -> Union[GeminiResponse, AsyncGenerator[str, None]]:
         """Send a message to Gemini.
         
         Args:
@@ -132,9 +133,10 @@ class GeminiClient:
             session_id: Optional session ID for context
             system_instruction: Optional system instruction
             maintain_context: Whether to maintain conversation context
+            stream: If True, returns an async generator for streaming output.
             
         Returns:
-            GeminiResponse: Response from Gemini
+            GeminiResponse or AsyncGenerator: Response from Gemini or a stream.
             
         Raises:
             GeminiSDKError: If sending fails
@@ -151,70 +153,80 @@ class GeminiClient:
         if not self._started:
             await self.start()
         
-        try:
-            # Get conversation context
-            context = None
-            if maintain_context and session_id:
-                context = self.session_manager.get_context(session_id)
+        context = None
+        if maintain_context and session_id:
+            context = self.session_manager.get_context(session_id)
+        
+        process = await self.process_manager.get_or_create_process(session_id)
             
-            # Get or create process
-            process = await self.process_manager.get_or_create_process(session_id)
-            
-            # Build full message
-            full_message = message
-            if system_instruction:
-                full_message = f"System: {system_instruction}\n\nUser: {message}"
-            
-            # Send message and get response
+        full_message = message
+        if system_instruction:
+            full_message = f"System: {system_instruction}\n\nUser: {message}"
+        
+        if not stream:
             response_content = await self.process_manager.send_message(
-                process, full_message, context
+                process, full_message, context, stream=False
             )
             
-            # Update session context if maintaining context
             if maintain_context and session_id:
                 self.session_manager.add_message(session_id, MessageRole.USER, message)
                 self.session_manager.add_message(session_id, MessageRole.ASSISTANT, response_content)
             
-            # Create response object
-            response = GeminiResponse(
+            return GeminiResponse(
                 content=response_content,
                 session_id=session_id,
                 process_id=process.process_id
             )
-            
-            self._logger.debug(f"Sent message and received response for session {session_id}")
-            return response
-            
-        except Exception as e:
-            self._logger.error(f"Failed to send message: {e}")
-            raise GeminiSDKError(f"Failed to send message: {e}")
+        else:
+            async def stream_generator() -> AsyncGenerator[str, None]:
+                response_chunks = []
+                stream_response = await self.process_manager.send_message(
+                    process, full_message, context, stream=True
+                )
+                
+                async for chunk in stream_response:
+                    response_chunks.append(chunk)
+                    yield chunk
+                
+                if maintain_context and session_id:
+                    full_response = "".join(response_chunks)
+                    self.session_manager.add_message(session_id, MessageRole.USER, message)
+                    self.session_manager.add_message(session_id, MessageRole.ASSISTANT, full_response)
+                    self._logger.debug(f"Stream finished. Updated context for session {session_id}")
+
+            return stream_generator()
     
-    async def chat(self, message: str, session_id: Optional[str] = None) -> GeminiResponse:
+    async def chat(self, message: str, session_id: Optional[str] = None,
+                   stream: bool = False) -> Union[GeminiResponse, AsyncGenerator[str, None]]:
         """Simple chat interface.
         
         Args:
             message: Message to send
             session_id: Optional session ID for context
+            stream: If True, returns an async generator for streaming output.
             
         Returns:
-            GeminiResponse: Response from Gemini
+            GeminiResponse or AsyncGenerator: Response from Gemini or a stream.
         """
-        return await self.send_message(message, session_id)
+        return await self.send_message(message, session_id, stream=stream)
     
-    async def one_shot(self, message: str, system_instruction: Optional[str] = None) -> GeminiResponse:
+    async def one_shot(self, message: str, system_instruction: Optional[str] = None,
+                       stream: bool = False) -> Union[GeminiResponse, AsyncGenerator[str, None]]:
         """Send a one-time message without maintaining context.
         
         Args:
             message: Message to send
             system_instruction: Optional system instruction
+            stream: If True, returns an async generator for streaming output.
             
         Returns:
-            GeminiResponse: Response from Gemini
+            GeminiResponse or AsyncGenerator: Response from Gemini or a stream.
         """
         return await self.send_message(
             message, 
             system_instruction=system_instruction,
-            maintain_context=False
+            maintain_context=False,
+            stream=stream
         )
     
     # Batch Operations
@@ -795,7 +807,8 @@ class GeminiClient:
     async def send_message_with_features(self, message: str, session_id: Optional[str] = None,
                                        system_instruction: Optional[str] = None,
                                        process_file_refs: bool = True,
-                                       allow_shell_commands: bool = False) -> GeminiResponse:
+                                       allow_shell_commands: bool = False,
+                                       stream: bool = False) -> Union[GeminiResponse, AsyncGenerator[str, None]]:
         """Send a message with advanced features like file references and shell commands.
         
         Args:
@@ -804,9 +817,10 @@ class GeminiClient:
             system_instruction: Optional system instruction
             process_file_refs: Whether to process @ file references
             allow_shell_commands: Whether to allow ! shell commands
+            stream: If True, returns an async generator for streaming output.
             
         Returns:
-            GeminiResponse: Response from Gemini
+            GeminiResponse or AsyncGenerator: Response from Gemini or a stream.
         """
         # Check for system commands
         if message.strip().startswith('/'):
@@ -841,4 +855,4 @@ class GeminiClient:
             message = self.process_file_references(message)
         
         # Send normal message
-        return await self.send_message(message, session_id, system_instruction)
+        return await self.send_message(message, session_id, system_instruction, stream=stream)

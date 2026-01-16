@@ -1,11 +1,8 @@
-# Gemini CLI SDK
-
-一个用于与 Gemini CLI 交互的 Python SDK，提供高级接口来管理 Gemini CLI 进程、维护对话会话和处理并发交互。
-
 ## 特性
 
 - **异步支持**: 完全异步的 API，支持高并发操作
-- **会话管理**: 自动管理对话上下文和会话状态
+- **流式响应**: 支持流式返回，实时获取思考过程中的回复
+- **会話管理**: 自动管理对话上下文和会话状态
 - **进程池**: 智能的进程池管理，自动复用和清理空闲进程
 - **系统命令**: 完整支持 Gemini CLI 的所有系统命令（/help, /clear, /stats 等）
 - **文件引用**: 支持 @ 语法引用文件内容
@@ -47,7 +44,7 @@ async def main():
     async with GeminiClient() as client:
         # 简单的一次性查询
         response = await client.one_shot("什么是 Python？")
-        print(response)
+        print(response.content)
 
 asyncio.run(main())
 ```
@@ -67,11 +64,35 @@ async def main():
         response1 = await client.chat("你好，我正在学习编程", session_id)
         response2 = await client.chat("能给我一些建议吗？", session_id)
         
-        print(f"AI: {response1}")
-        print(f"AI: {response2}")
+        print(f"AI: {response1.content}")
+        print(f"AI: {response2.content}")
         
         # 清理会话
         client.close_session(session_id)
+
+asyncio.run(main())
+```
+
+### 流式响应
+
+```python
+import asyncio
+import json # 导入json模块
+from gemini_cli_sdk import GeminiClient
+
+async def main():
+    async with GeminiClient() as client:
+        print("AI (流式): ", end="")
+        async for chunk in await client.chat("写一首关于宇宙的短诗", stream=True):
+            try:
+                json_chunk = json.loads(chunk)
+                if json_chunk.get("type") == "message" and json_chunk.get("role") == "assistant":
+                    content_part = json_chunk.get("content", "")
+                    print(content_part, end="", flush=True)
+            except json.JSONDecodeError:
+                # 处理非JSON格式的块，或者错误情况
+                print(chunk, end="", flush=True) # 作为回退，直接打印原始内容
+        print() # 流式输出结束后换行
 
 asyncio.run(main())
 ```
@@ -137,7 +158,7 @@ asyncio.run(main())
   "idle_timeout": 300,
   "max_context_length": 50,
   "gemini_command": "gemini",
-  "gemini_args": ["--interactive", "--json-output"],
+  "gemini_args": [],
   "enable_logging": true,
   "log_level": "INFO",
   "response_timeout": 30.0,
@@ -152,7 +173,7 @@ export GEMINI_MAX_PROCESSES=5
 export GEMINI_IDLE_TIMEOUT=300
 export GEMINI_MAX_CONTEXT_LENGTH=50
 export GEMINI_COMMAND=gemini
-export GEMINI_ARGS="--interactive --json-output"
+export GEMINI_ARGS=""
 export GEMINI_ENABLE_LOGGING=true
 export GEMINI_LOG_LEVEL=INFO
 export GEMINI_RESPONSE_TIMEOUT=30.0
@@ -173,7 +194,7 @@ config = GeminiConfig(
 
 async with GeminiClient(config=config) as client:
     response = await client.chat("Hello!")
-    print(response)
+    print(response.content)
 ```
 
 ## API 参考
@@ -188,9 +209,9 @@ async with GeminiClient(config=config) as client:
 - `async stop()`: 停止客户端
 - `create_session(user_id=None, metadata=None)`: 创建新会话
 - `close_session(session_id)`: 关闭会话
-- `async send_message(message, session_id=None, system_instruction=None, maintain_context=True)`: 发送消息
-- `async chat(message, session_id=None)`: 简单聊天接口
-- `async one_shot(message, system_instruction=None)`: 一次性查询
+- `async send_message(message, session_id=None, system_instruction=None, maintain_context=True, stream=False)`: 发送消息，根据 `stream` 参数返回 `GeminiResponse` 或异步生成器
+- `async chat(message, session_id=None, stream=False)`: 简单聊天接口，支持流式返回
+- `async one_shot(message, system_instruction=None, stream=False)`: 一次性查询，支持流式返回
 - `async send_batch(messages, session_id=None, system_instruction=None)`: 批量发送
 - `async send_concurrent(messages, system_instruction=None)`: 并发发送
 - `get_stats()`: 获取客户端统计信息
@@ -246,7 +267,7 @@ async with GeminiClient() as client:
         "如何创建一个 Python 类？",
         system_instruction=system_instruction
     )
-    print(response)
+    print(response.content)
 ```
 
 ### 会话元数据

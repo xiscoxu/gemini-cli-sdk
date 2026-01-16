@@ -6,7 +6,7 @@ import time
 import shutil
 import logging
 from dataclasses import dataclass
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Union, AsyncGenerator
 from .models import ProcessStatus, GeminiConfig, Message, ProcessInfo
 from .exceptions import GeminiProcessError, GeminiNotFoundError, GeminiTimeoutError
 
@@ -25,7 +25,7 @@ class GeminiProcess:
 
 class ProcessManager:
     """Manages Gemini CLI processes for the SDK."""
-    
+
     def __init__(self, config: GeminiConfig):
         """Initialize process manager.
         
@@ -38,10 +38,10 @@ class ProcessManager:
         self._lock = asyncio.Lock()
         self._cleanup_task: Optional[asyncio.Task] = None
         self._logger = logging.getLogger(__name__)
-        
+
         # Verify Gemini CLI is available
         self._verify_gemini_cli()
-    
+
     def _verify_gemini_cli(self):
         """Verify that Gemini CLI is installed and accessible."""
         if not shutil.which(self.config.gemini_command):
@@ -50,13 +50,13 @@ class ProcessManager:
                 "Please install Gemini CLI first."
             )
         self._logger.info(f"Verified Gemini CLI at: {self.config.gemini_command}")
-    
+
     async def start(self):
         """Start the process manager."""
         if self._cleanup_task is None:
             self._cleanup_task = asyncio.create_task(self._cleanup_loop())
             self._logger.info("Process manager started")
-    
+
     async def stop(self):
         """Stop the process manager and clean up all processes."""
         if self._cleanup_task:
@@ -65,14 +65,14 @@ class ProcessManager:
                 await self._cleanup_task
             except asyncio.CancelledError:
                 pass
-        
-        # Terminate all processes
-        process_ids = list(self.processes.keys())
-        for process_id in process_ids:
-            await self._terminate_process(process_id)
-        
+
+        # In one-shot mode, we don't need to terminate processes since they're already closed
+        # Clear the processes lists
+        self.processes.clear()
+        self.session_processes.clear()
+
         self._logger.info("Process manager stopped")
-    
+
     async def get_or_create_process(self, session_id: Optional[str] = None) -> GeminiProcess:
         """Get an existing process or create a new one.
         
@@ -85,174 +85,121 @@ class ProcessManager:
         Raises:
             GeminiProcessError: If process creation fails
         """
-        async with self._lock:
-            # Try to reuse session-bound process
-            if session_id and session_id in self.session_processes:
-                process_id = self.session_processes[session_id]
-                if process_id in self.processes:
-                    proc = self.processes[process_id]
-                    if proc.status == ProcessStatus.IDLE:
-                        proc.status = ProcessStatus.BUSY
-                        proc.last_used = time.time()
-                        self._logger.debug(f"Reusing process {process_id} for session {session_id}")
-                        return proc
-            
-            # Find any idle process
-            for proc in self.processes.values():
-                if proc.status == ProcessStatus.IDLE:
-                    proc.status = ProcessStatus.BUSY
-                    proc.session_id = session_id
-                    proc.last_used = time.time()
-                    if session_id:
-                        self.session_processes[session_id] = proc.process_id
-                    self._logger.debug(f"Assigned idle process {proc.process_id} to session {session_id}")
-                    return proc
-            
-            # Create new process if under limit
-            if len(self.processes) < self.config.max_processes:
-                return await self._create_process(session_id)
-            
-            # Wait for an idle process
-            return await self._wait_for_idle_process(session_id)
-    
-    async def _create_process(self, session_id: Optional[str] = None) -> GeminiProcess:
-        """Create a new Gemini process.
-        
-        Args:
-            session_id: Optional session ID to associate
-            
-        Returns:
-            GeminiProcess: New Gemini process
-            
-        Raises:
-            GeminiProcessError: If process creation fails
-        """
+        # In one-shot mode, we don't maintain long-running processes
+        # Create a minimal GeminiProcess object for compatibility
+        # We'll create actual processes in send_message for each request
         process_id = str(uuid.uuid4())
-        
+
+        # Create a dummy process object - the actual process is created in send_message
+        dummy_process = GeminiProcess(
+            process_id=process_id,
+            process=None,  # This will be None since we don't maintain long-running processes
+            status=ProcessStatus.BUSY,
+            created_at=time.time(),
+            last_used=time.time(),
+            session_id=session_id
+        )
+
+        return dummy_process
+
+    async def send_message(self, process: GeminiProcess, message: str,
+                           context: Optional[List[Message]] = None,
+                           stream: bool = False) -> Union[str, AsyncGenerator[str, None]]:
+        """Send a message to a Gemini process.
+
+        Args:
+            process: Gemini process (not used in one-shot mode)
+            message: Message content
+            context: Optional conversation context
+            stream: If True, returns an async generator for streaming output.
+
+        Returns:
+            str or AsyncGenerator: Response from Gemini
+        """
+        if stream:
+            return self._stream_message(message, context)
+        else:
+            return await self._one_shot_message(message, context)
+
+    async def _one_shot_message(self, message: str,
+                                context: Optional[List[Message]] = None) -> str:
+        """Execute a one-shot command and get the full response."""
         try:
-            cmd = [self.config.gemini_command] + self.config.gemini_args
-            self._logger.debug(f"Creating process with command: {' '.join(cmd)}")
-            
+            full_message = self._build_message_with_context(message, context)
+            # For non-streaming, use --output-format json
+            cmd = [self.config.gemini_command] + ["--output-format", "json"] + [full_message]
+            self._logger.debug(f"Executing one-shot command: {' '.join(cmd)}")
+
             process = await asyncio.create_subprocess_exec(
                 *cmd,
-                stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            
-            current_time = time.time()
-            gemini_proc = GeminiProcess(
-                process_id=process_id,
-                process=process,
-                status=ProcessStatus.BUSY,
-                created_at=current_time,
-                last_used=current_time,
-                session_id=session_id
+
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=self.config.response_timeout
             )
-            
-            self.processes[process_id] = gemini_proc
-            if session_id:
-                self.session_processes[session_id] = process_id
-            
-            self._logger.info(f"Created new Gemini process: {process_id}")
-            return gemini_proc
-            
-        except Exception as e:
-            self._logger.error(f"Failed to create Gemini process: {e}")
-            raise GeminiProcessError(f"Failed to create Gemini process: {e}")
-    
-    async def _wait_for_idle_process(self, session_id: Optional[str] = None) -> GeminiProcess:
-        """Wait for a process to become idle.
-        
-        Args:
-            session_id: Optional session ID
-            
-        Returns:
-            GeminiProcess: Available process
-            
-        Raises:
-            GeminiTimeoutError: If no process becomes available
-        """
-        wait_time = 0
-        max_wait = 30  # Maximum wait time in seconds
-        
-        while wait_time < max_wait:
-            await asyncio.sleep(0.1)
-            wait_time += 0.1
-            
-            async with self._lock:
-                for proc in self.processes.values():
-                    if proc.status == ProcessStatus.IDLE:
-                        proc.status = ProcessStatus.BUSY
-                        proc.session_id = session_id
-                        proc.last_used = time.time()
-                        if session_id:
-                            self.session_processes[session_id] = proc.process_id
-                        self._logger.debug(f"Got idle process {proc.process_id} after {wait_time:.1f}s")
-                        return proc
-        
-        raise GeminiTimeoutError("No Gemini process became available within timeout")
-    
-    async def send_message(self, process: GeminiProcess, message: str, 
-                          context: Optional[List[Message]] = None) -> str:
-        """Send a message to a Gemini process.
-        
-        Args:
-            process: Gemini process to send message to
-            message: Message content
-            context: Optional conversation context
-            
-        Returns:
-            str: Response from Gemini
-            
-        Raises:
-            GeminiProcessError: If communication fails
-            GeminiTimeoutError: If response times out
-        """
-        try:
-            # Build message with context
-            full_message = self._build_message_with_context(message, context)
-            
-            # Send message
-            self._logger.debug(f"Sending message to process {process.process_id}")
-            process.process.stdin.write(full_message.encode() + b'\n')
-            await process.process.stdin.drain()
-            
-            # Read response with timeout
+
+            if process.returncode != 0:
+                error_output = stderr.decode().strip()
+                raise GeminiProcessError(f"Gemini process failed: {error_output}")
+
+            if not stdout:
+                raise GeminiProcessError("Gemini process returned empty output")
+
+            response = stdout.decode().strip()
+            self._logger.debug(f"Received response from one-shot command: {response}")
+
+            import json
             try:
-                response_line = await asyncio.wait_for(
-                    process.process.stdout.readline(),
-                    timeout=self.config.response_timeout
-                )
-            except asyncio.TimeoutError:
-                process.status = ProcessStatus.ERROR
-                raise GeminiTimeoutError(
-                    f"Gemini process {process.process_id} response timeout "
-                    f"after {self.config.response_timeout}s"
-                )
-            
-            if not response_line:
-                process.status = ProcessStatus.ERROR
-                raise GeminiProcessError(f"Gemini process {process.process_id} closed unexpectedly")
-            
-            response = response_line.decode().strip()
-            process.message_count += 1
-            
-            self._logger.debug(f"Received response from process {process.process_id}")
+                response_data = json.loads(response)
+                if isinstance(response_data, dict) and "response" in response_data:
+                    return response_data["response"]
+            except json.JSONDecodeError:
+                raise GeminiProcessError(f"Failed to parse JSON response: {response}")
             return response
-            
+
         except (GeminiTimeoutError, GeminiProcessError):
             raise
         except Exception as e:
-            process.status = ProcessStatus.ERROR
-            self._logger.error(f"Error communicating with Gemini process {process.process_id}: {e}")
+            self._logger.error(f"Error communicating with Gemini: {e}")
             raise GeminiProcessError(f"Error communicating with Gemini: {e}")
-        finally:
-            if process.status != ProcessStatus.ERROR:
-                process.status = ProcessStatus.IDLE
-            process.last_used = time.time()
-    
-    def _build_message_with_context(self, message: str, 
+
+    async def _stream_message(self, message: str,
+                              context: Optional[List[Message]] = None) -> AsyncGenerator[str, None]:
+        """Execute a command and stream the response."""
+        full_message = self._build_message_with_context(message, context)
+        # For streaming, assume a --stream flag exists
+        cmd = [self.config.gemini_command] + ["--output-format", "stream-json"] + [full_message]
+        self._logger.debug(f"Executing stream command: {' '.join(cmd)}")
+
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+
+        # Asynchronously read from stdout line by line
+        while process.returncode is None:
+            if process.stdout.at_eof():
+                break
+            line = await process.stdout.readline()
+            if line:
+                # yield decoded data chunk
+                yield line.decode('utf-8')
+
+        # After the process finishes, check for errors
+        stderr_output = await process.stderr.read()
+        if process.returncode != 0:
+            error_msg = stderr_output.decode().strip()
+            if error_msg == "Loaded cached credentials.":
+                self._logger.warning("Gemini CLI exited with non-zero code, but stderr only contained 'Loaded cached credentials.'. Assuming non-critical issue.")
+            else:
+                self._logger.error(f"Gemini stream process failed: {error_msg}")
+                raise GeminiProcessError(f"Gemini stream failed: {error_msg}")
+
+    def _build_message_with_context(self, message: str,
                                    context: Optional[List[Message]] = None) -> str:
         """Build a message with conversation context.
         
@@ -265,83 +212,57 @@ class ProcessManager:
         """
         if not context:
             return message
-        
+
         # Build context from recent messages
         context_lines = []
         for msg in context[-10:]:  # Use last 10 messages for context
             role = msg.role.value
             content = msg.content
             context_lines.append(f"{role}: {content}")
-        
+
         if context_lines:
             context_str = "\n".join(context_lines)
             return f"Previous conversation:\n{context_str}\n\nCurrent message: {message}"
-        
+
         return message
-    
+
     async def _cleanup_loop(self):
         """Background task to clean up idle processes."""
         while True:
             try:
                 await asyncio.sleep(self.config.cleanup_interval)
-                await self._cleanup_idle_processes()
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 self._logger.error(f"Error in cleanup loop: {e}")
-    
-    async def _cleanup_idle_processes(self):
-        """Clean up processes that have been idle too long."""
-        current_time = time.time()
-        to_remove = []
-        
-        async with self._lock:
-            for process_id, proc in self.processes.items():
-                if (proc.status == ProcessStatus.IDLE and 
-                    current_time - proc.last_used > self.config.idle_timeout):
-                    to_remove.append(process_id)
-                elif proc.status == ProcessStatus.ERROR:
-                    to_remove.append(process_id)
-        
-        for process_id in to_remove:
-            await self._terminate_process(process_id)
-        
-        if to_remove:
-            self._logger.info(f"Cleaned up {len(to_remove)} idle/error processes")
-    
+
     async def _terminate_process(self, process_id: str):
-        """Terminate a specific process.
+        """Terminate a Gemini process.
         
         Args:
-            process_id: ID of process to terminate
+            process_id: ID of the process to terminate
         """
-        if process_id not in self.processes:
-            return
-        
-        proc = self.processes[process_id]
-        
         try:
-            # Try graceful termination first
-            proc.process.terminate()
-            try:
-                await asyncio.wait_for(proc.process.wait(), timeout=5.0)
-            except asyncio.TimeoutError:
-                # Force kill if graceful termination fails
-                proc.process.kill()
-                await proc.process.wait()
-            
-            self._logger.debug(f"Terminated process: {process_id}")
-            
+            process = self.processes.get(process_id)
+            if process:
+                # Remove from process lists first to prevent race conditions
+                del self.processes[process_id]
+                if process.session_id and process.session_id in self.session_processes:
+                    del self.session_processes[process.session_id]
+
+                # Terminate the process if it's still running
+                if process.process.returncode is None:
+                    process.process.terminate()
+                    try:
+                        await asyncio.wait_for(process.process.wait(), timeout=5)
+                    except asyncio.TimeoutError:
+                        process.process.kill()
+                        await process.process.wait()
+
+                self._logger.debug(f"Terminated process {process_id}")
         except Exception as e:
-            self._logger.warning(f"Error terminating process {process_id}: {e}")
-        finally:
-            # Clean up references
-            del self.processes[process_id]
-            
-            # Remove session mapping
-            if proc.session_id and proc.session_id in self.session_processes:
-                del self.session_processes[proc.session_id]
-    
+            self._logger.error(f"Error terminating process {process_id}: {e}")
+
     async def close_session_process(self, session_id: str):
         """Close the process associated with a session.
         
@@ -352,7 +273,7 @@ class ProcessManager:
             process_id = self.session_processes[session_id]
             await self._terminate_process(process_id)
             self._logger.info(f"Closed process for session: {session_id}")
-    
+
     def get_process_info(self, process_id: str) -> Optional[ProcessInfo]:
         """Get information about a process.
         
@@ -364,7 +285,7 @@ class ProcessManager:
         """
         if process_id not in self.processes:
             return None
-        
+
         proc = self.processes[process_id]
         return ProcessInfo(
             process_id=process_id,
@@ -374,7 +295,7 @@ class ProcessManager:
             message_count=proc.message_count,
             session_id=proc.session_id
         )
-    
+
     def list_processes(self) -> List[ProcessInfo]:
         """List all active processes.
         
@@ -392,20 +313,22 @@ class ProcessManager:
             )
             for proc in self.processes.values()
         ]
-    
+
     def get_process_count(self) -> int:
         """Get the number of active processes.
         
         Returns:
             int: Number of active processes
         """
-        return len(self.processes)
-    
+        # In one-shot mode, we don't maintain long-running processes
+        # Return 0 since we create new processes for each request
+        return 0
+
     def get_idle_process_count(self) -> int:
         """Get the number of idle processes.
         
         Returns:
             int: Number of idle processes
         """
-        return sum(1 for proc in self.processes.values() 
-                  if proc.status == ProcessStatus.IDLE)
+        # In one-shot mode, we don't maintain long-running processes
+        return 0

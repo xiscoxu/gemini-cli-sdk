@@ -27,7 +27,7 @@ def read_requirements():
 
 setup(
     name="gemini-cli-sdk",
-    version="1.0.0",
+    version="1.0.5",
     author="xiscoxu",
     author_email="xuxisco@gmail.com",
     description="A Python SDK for interacting with Gemini CLI",

@@ -11,22 +11,29 @@ Example usage:
         async with GeminiClient() as client:
             # Simple one-shot query
             response = await client.one_shot("What is Python?")
-            print(response)
+            print(f"One-shot response: {response.content}")
             
             # Create a session for contextual conversation
             session_id = client.create_session()
             
             # Chat with context
             response1 = await client.chat("Hello, I'm learning programming", session_id)
-            response2 = await client.chat("Can you give me some tips?", session_id)
+            print(f"AI (session 1): {response1.content}")
             
-            print(f"AI: {response1}")
-            print(f"AI: {response2}")
-    
+            response2 = await client.chat("Can you give me some tips?", session_id)
+            print(f"AI (session 2): {response2.content}")
+
+            # Streamed response
+            print("\n--- Streaming Response Example ---")
+            print("AI (streamed): ", end="")
+            async for chunk in await client.chat("Tell me a short story.", stream=True):
+                print(chunk, end="", flush=True)
+            print("\n----------------------------------")
+            
     asyncio.run(main())
 """
 
-__version__ = "1.0.0"
+__version__ = "1.0.5"
 __author__ = "Gemini CLI SDK Team"
 __email__ = "support@example.com"
 __description__ = "A Python SDK for interacting with Gemini CLI"

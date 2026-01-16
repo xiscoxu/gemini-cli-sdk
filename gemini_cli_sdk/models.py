@@ -58,7 +58,7 @@ class GeminiConfig:
     idle_timeout: int = 3600
     max_context_length: int = 1000000
     gemini_command: str = "gemini"
-    gemini_args: List[str] = field(default_factory=lambda: ["--output-format", "json"])
+    gemini_args: List[str] = field(default_factory=list) # Modified here
     enable_logging: bool = True
     log_level: str = "INFO"
     response_timeout: float = 300
