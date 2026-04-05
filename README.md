@@ -1,37 +1,128 @@
-## 特性
+# Gemini CLI SDK
 
-- **异步支持**: 完全异步的 API，支持高并发操作
-- **流式响应**: 支持流式返回，实时获取思考过程中的回复
-- **会話管理**: 自动管理对话上下文和会话状态
-- **进程池**: 智能的进程池管理，自动复用和清理空闲进程
-- **系统命令**: 完整支持 Gemini CLI 的所有系统命令（/help, /clear, /stats 等）
-- **文件引用**: 支持 @ 语法引用文件内容
-- **Shell 集成**: 支持 ! 语法执行 shell 命令
-- **配置灵活**: 支持文件配置和环境变量配置
-- **错误处理**: 完善的异常处理和错误恢复机制
-- **类型安全**: 完整的类型注解支持
-- **易于使用**: 简洁的 API 设计，支持一行代码调用
+[![Python Version](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
+[![Version](https://img.shields.io/badge/version-1.2.0-green.svg)](https://github.com/xiscoxu/gemini-cli-sdk)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-## 安装
+一个功能强大的 Python SDK，用于与 Google Gemini CLI 交互，支持异步操作、会话管理、流式响应，并提供 **OpenAI 兼容的 REST API 接口**。
+
+## ✨ 特性
+
+### 核心功能
+
+- 🚀 **异步支持**: 完全异步的 API，支持高并发操作
+- 📡 **流式响应**: 支持流式返回，实时获取思考过程中的回复
+- 💬 **会话管理**: 自动管理对话上下文和会话状态
+- ⚙️ **进程池**: 智能的进程池管理，自动复用和清理空闲进程
+- 🛠️ **系统命令**: 完整支持 Gemini CLI 的所有系统命令（/help, /clear, /stats 等）
+- 📁 **文件引用**: 支持 @ 语法引用文件内容
+- 🖥️ **Shell 集成**: 支持 ! 语法执行 shell 命令
+- 🔧 **配置灵活**: 支持文件配置和环境变量配置
+- 🛡️ **错误处理**: 完善的异常处理和错误恢复机制
+- 📝 **类型安全**: 完整的类型注解支持
+- 🎯 **易于使用**: 简洁的 API 设计，支持一行代码调用
+
+### 🆕 API 服务器（v1.2.0 新增）
+
+- 🌐 **OpenAI 兼容**: 完全兼容 OpenAI Chat Completion API 格式
+- 🔌 **即插即用**: 可直接与 OpenAI SDK、LangChain 等工具配合使用
+- ⚡ **高性能**: 基于 FastAPI + asyncio，支持并发请求和流式响应
+- 🚦 **速率限制**: 内置请求频率控制，防止过载
+- 📊 **监控统计**: 提供健康检查和实时统计接口
+- 🔄 **会话复用**: 自动管理用户会话，高效利用资源
+
+## 📦 安装
+
+### 基础安装
 
 从源码安装：
 
 ```bash
-git clone https://github.com/example/gemini-cli-sdk.git
+git clone https://github.com/xiscoxu/gemini-cli-sdk.git
 cd gemini-cli-sdk
 pip install -e .
 ```
 
-## 前置条件
+### 安装 API 服务器
+
+如果需要使用 OpenAI 兼容的 API 服务器：
+
+```bash
+# 安装包含 API 服务器的完整版本
+pip install -e ".[api]"
+
+# 或者单独安装 API 依赖
+pip install fastapi uvicorn slowapi python-multipart
+```
+
+## ⚡ 前置条件
 
 确保已安装 Gemini CLI 工具并且在 PATH 中可用：
 
 ```bash
+# 安装 Gemini CLI
+npm install -g @google/gemini-cli
+
 # 检查 Gemini CLI 是否可用
 gemini --version
+
+# 首次运行进行配置
+gemini -p "Hello, Gemini"
 ```
 
-## 快速开始
+## 🚀 快速开始
+
+### 方式一：OpenAI 兼容 API（推荐）
+
+最简单的使用方式是启动 API 服务器，然后使用 OpenAI SDK 或任何兼容 OpenAI API 的工具：
+
+#### 1. 启动 API 服务器
+
+```bash
+# 使用默认配置启动（监听 127.0.0.1:8765）
+gemini-api-server
+
+# 或自定义配置
+gemini-api-server --host 0.0.0.0 --port 8765 --rate-limit 100
+```
+
+#### 2. 使用 OpenAI SDK 调用
+
+```python
+from openai import OpenAI
+
+# 连接到 Gemini API 服务器
+client = OpenAI(
+    base_url='http://localhost:8765/v1',
+    api_key='dummy-key'  # 任意字符串即可
+)
+
+# 发送请求
+response = client.chat.completions.create(
+    model='gemini-2.5-pro',
+    messages=[
+        {'role': 'user', 'content': 'What is Python?'}
+    ]
+)
+
+print(response.choices[0].message.content)
+```
+
+#### 3. 测试 API
+
+```bash
+curl http://localhost:8765/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer dummy-key" \
+  -d '{
+    "model": "gemini-2.5-pro",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
+
+**API 文档**: 启动服务器后访问 `http://localhost:8765/docs` 查看完整的 API 文档。
+
+### 方式二：直接使用 Python SDK
 
 ### 基本用法
 
@@ -373,7 +464,183 @@ async with GeminiClient() as client:
     print(result)
 ```
 
-## 开发
+## 🌐 API 服务器
+
+Gemini CLI SDK 提供了一个完全兼容 OpenAI API 格式的 REST API 服务器，让你可以像使用 OpenAI API 一样使用 Gemini。
+
+### 启动服务器
+
+```bash
+# 基本启动
+gemini-api-server
+
+# 自定义配置
+gemini-api-server \
+  --host 0.0.0.0 \
+  --port 8765 \
+  --rate-limit 100 \
+  --max-concurrency 8 \
+  --timeout 60
+
+# 开发模式（启用调试和自动重载）
+gemini-api-server --debug --reload
+```
+
+### 支持的端点
+
+| 端点 | 方法 | 描述 |
+|------|------|------|
+| `/health` | GET | 健康检查 |
+| `/v1/models` | GET | 列出可用模型 |
+| `/v1/chat/completions` | POST | 聊天完成（OpenAI 兼容） |
+| `/stats` | GET | 服务器统计信息 |
+| `/docs` | GET | API 文档（Swagger UI） |
+
+### 使用示例
+
+#### Python (OpenAI SDK)
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url='http://localhost:8765/v1',
+    api_key='dummy-key'
+)
+
+# 非流式
+response = client.chat.completions.create(
+    model='gemini-2.5-pro',
+    messages=[{'role': 'user', 'content': 'Hello!'}]
+)
+print(response.choices[0].message.content)
+
+# 流式
+stream = client.chat.completions.create(
+    model='gemini-2.5-flash',
+    messages=[{'role': 'user', 'content': 'Tell me a story'}],
+    stream=True
+)
+for chunk in stream:
+    if chunk.choices[0].delta.content:
+        print(chunk.choices[0].delta.content, end='')
+```
+
+#### cURL
+
+```bash
+# 非流式请求
+curl http://localhost:8765/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini-2.5-pro",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+
+# 流式请求
+curl http://localhost:8765/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini-2.5-flash",
+    "messages": [{"role": "user", "content": "Count to 5"}],
+    "stream": true
+  }'
+```
+
+#### JavaScript/TypeScript
+
+```typescript
+import OpenAI from 'openai';
+
+const client = new OpenAI({
+  baseURL: 'http://localhost:8765/v1',
+  apiKey: 'dummy-key',
+});
+
+const completion = await client.chat.completions.create({
+  model: 'gemini-2.5-pro',
+  messages: [{ role: 'user', content: 'Hello!' }],
+});
+
+console.log(completion.choices[0].message.content);
+```
+
+### 配置选项
+
+| 参数 | 默认值 | 描述 |
+|------|--------|------|
+| `--host` | 127.0.0.1 | 服务器地址 |
+| `--port` | 8765 | 服务器端口 |
+| `--rate-limit` | 60 | 每分钟最大请求数 |
+| `--max-concurrency` | 4 | 最大并发请求数 |
+| `--timeout` | 30.0 | 请求超时时间（秒） |
+| `--max-processes` | 5 | 最大 Gemini CLI 进程数 |
+| `--log-level` | INFO | 日志级别 |
+| `--debug` | false | 调试模式 |
+| `--reload` | false | 自动重载（开发用） |
+
+### 环境变量
+
+也可以通过环境变量配置：
+
+```bash
+export GEMINI_API_HOST=0.0.0.0
+export GEMINI_API_PORT=8765
+export GEMINI_API_RATE_LIMIT=100
+export GEMINI_API_MAX_CONCURRENCY=8
+```
+
+### 生产部署
+
+#### 使用 systemd
+
+```ini
+# /etc/systemd/system/gemini-api.service
+[Unit]
+Description=Gemini CLI SDK API Server
+After=network.target
+
+[Service]
+Type=simple
+User=your-user
+WorkingDirectory=/path/to/gemini-cli-sdk
+ExecStart=/usr/local/bin/gemini-api-server --host 0.0.0.0 --port 8765
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl start gemini-api
+sudo systemctl enable gemini-api
+```
+
+#### 使用 Docker
+
+```dockerfile
+FROM python:3.11-slim
+
+# 安装 Node.js 和 Gemini CLI
+RUN apt-get update && apt-get install -y nodejs npm
+RUN npm install -g @google/gemini-cli
+
+# 复制代码
+WORKDIR /app
+COPY . .
+RUN pip install -e ".[api]"
+
+# 暴露端口
+EXPOSE 8765
+
+# 启动服务
+CMD ["gemini-api-server", "--host", "0.0.0.0", "--port", "8765"]
+```
+
+更多详细信息请查看 [examples/api_usage_example.py](examples/api_usage_example.py)
+
+## 💻 开发
 
 ### 安装开发依赖
 
@@ -488,13 +755,33 @@ MIT License
 
 欢迎提交 Issue 和 Pull Request！
 
-## 更新日志
+## 📝 更新日志
+
+### v1.2.0 (2026-02-10)
+
+**重大更新：OpenAI 兼容 API 服务器**
+
+- ✨ 新增 OpenAI 兼容的 REST API 服务器
+  - 完全兼容 OpenAI Chat Completion API 格式
+  - 支持流式和非流式响应
+  - 内置速率限制和并发控制
+  - 提供健康检查和统计接口
+- 🔧 新增命令行工具 `gemini-api-server`
+- 📚 新增完整的 API 使用示例和文档
+- 🚀 可与 OpenAI SDK、LangChain 等工具无缝集成
+- ⚡ 基于 FastAPI 的高性能实现
+- 📊 实时监控和统计功能
+
+### v1.0.5
+
+- 🐛 Bug 修复和性能优化
+- 📝 文档改进
 
 ### v1.0.0
 
-- 初始版本发布
-- 支持基本的 Gemini CLI 交互
-- 会话管理功能
-- 进程池管理
-- 配置系统
-- 完整的异常处理
+- 🎉 初始版本发布
+- ✅ 支持基本的 Gemini CLI 交互
+- ✅ 会话管理功能
+- ✅ 进程池管理
+- ✅ 配置系统
+- ✅ 完整的异常处理

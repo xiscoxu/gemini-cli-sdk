@@ -33,7 +33,7 @@ Example usage:
     asyncio.run(main())
 """
 
-__version__ = "1.0.5"
+__version__ = "1.2.0"
 __author__ = "Gemini CLI SDK Team"
 __email__ = "support@example.com"
 __description__ = "A Python SDK for interacting with Gemini CLI"
