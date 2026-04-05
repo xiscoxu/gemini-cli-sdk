@@ -27,7 +27,7 @@ def read_requirements():
 
 setup(
     name="gemini-cli-sdk",
-    version="1.0.5",
+    version="1.2.0",
     author="xiscoxu",
     author_email="xuxisco@gmail.com",
     description="A Python SDK for interacting with Gemini CLI",
@@ -53,6 +53,12 @@ setup(
     python_requires=">=3.8",
     install_requires=read_requirements(),
     extras_require={
+        "api": [
+            "fastapi>=0.104.0",
+            "uvicorn[standard]>=0.24.0",
+            "slowapi>=0.1.9",
+            "python-multipart>=0.0.6",
+        ],
         "dev": [
             "pytest>=7.0.0",
             "pytest-asyncio>=0.21.0",
@@ -75,6 +81,7 @@ setup(
     entry_points={
         "console_scripts": [
             "gemini-cli-sdk=gemini_cli_sdk.cli:main",
+            "gemini-api-server=gemini_cli_sdk.api.cli:main",
         ],
     },
     include_package_data=True,
